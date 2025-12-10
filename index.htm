@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Attendance System</title>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+  <style>
+    body {
+      font-family: Arial;
+      margin: 20px;
+      background: #f0f2f5;
+    }
+    #loginBox, #mainApp {
+      max-width: 450px;
+      margin: auto;
+      padding: 20px;
+      border-radius: 10px;
+      background: white;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+    }
+    #mainApp { display: none; }
+    button {
+      padding: 10px;
+      width: 100%;
+      margin-top: 10px;
+      border: none;
+      background: #1976d2;
+      color: white;
+      border-radius: 5px;
+      font-weight: bold;
+    }
+    table {
+      width: 100%;
+      margin-top: 20px;
+      border-collapse: collapse;
+      background: white;
+    }
+    th, td {
+      padding: 8px;
+      border: 1px solid #ccc;
+    }
+    th { background: #1976d2; color: white; }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN BOX -->
+<div id="loginBox">
+  <h2>Company Login</h2>
+  
+  <label>Login ID</label>
+  <input id="loginId" type="text" style="width:100%; padding:6px;"><br><br>
+
+  <label>Password</label>
+  <input id="loginPass" type="password" style="width:100%; padding:6px;"><br><br>
+
+  <button onclick="login()">Login</button>
+  <p id="loginStatus" style="color:red; font-weight:bold;"></p>
+</div>
+
+
+<!-- MAIN APP -->
+<div id="mainApp">
+  <h2 id="companyName"></h2>
+
+  <button onclick="scanQR()">Scan QR</button>
+  <p id="scanResult"></p>
+
+  <table id="attendanceTable">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>IN</th>
+        <th>OUT</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+
+<script>
+
+// ⭐⭐⭐⭐⭐ IMPORTANT — EDIT THIS ONLY ⭐⭐⭐⭐⭐
+const API_URL = "https://script.google.com/macros/s/AKfycbzsfPym4VW6EDp89ZJfz0_on4JINajlVE3Jpfj0AH3x3QpZCsuecrLcdvTgqnyCz5Q48g/exec";
+// ⭐⭐⭐⭐⭐ END OF EDIT ⭐⭐⭐⭐⭐
+
+
+let currentCompany = null;
+let activeSessions = {}; // name → {inTime, outTime}
+
+
+// LOGIN
+function login() {
+  const id = document.getElementById("loginId").value.trim();
+  const pass = document.getElementById("loginPass").value.trim();
+  const status = document.getElementById("loginStatus");
+
+  status.textContent = "Checking...";
+
+  fetch(API_URL, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      action: "login",
+      loginId: id,
+      password: pass
+    })
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (!d.success) {
+      status.textContent = "Invalid login!";
+      return;
+    }
+
+    currentCompany = d;
+
+    // Show main app
+    document.getElementById("loginBox").style.display = "none";
+    document.getElementById("mainApp").style.display = "block";
+    document.getElementById("companyName").textContent = d.companyName;
+  });
+}
+
+
+// QR SCAN
+function scanQR() {
+  const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+
+  scanner.render((decodedText) => {
+    scanner.clear();
+    document.getElementById("scanResult").textContent = "Scanned: " + decodedText;
+
+    recordAttendance(decodedText);
+  });
+}
+
+
+// RECORD IN/OUT
+function recordAttendance(name) {
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0,10);
+  const timeStr = now.toTimeString().slice(0,5);
+
+  if (!activeSessions[name]) {
+    // mark IN
+    activeSessions[name] = {inTime: timeStr, outTime: ""};
+  } else {
+    // mark OUT
+    activeSessions[name].outTime = timeStr;
+  }
+
+  updateTable();
+  sendToServer(name);
+}
+
+
+// UPDATE TABLE
+function updateTable() {
+  const tbody = document.querySelector("#attendanceTable tbody");
+  tbody.innerHTML = "";
+
+  for (let name in activeSessions) {
+    const s = activeSessions[name];
+    tbody.innerHTML += `
+      <tr>
+        <td>${name}</td>
+        <td>${s.inTime}</td>
+        <td>${s.outTime}</td>
+      </tr>`;
+  }
+}
+
+
+// SEND TO SERVER
+function sendToServer(name) {
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0,10);
+
+  const s = activeSessions[name];
+
+  fetch(API_URL, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      action: "saveSession",
+      companyId: currentCompany.companyId,
+      employeeName: name,
+      date: dateStr,
+      inTime: s.inTime,
+      outTime: s.outTime,
+      durationHours: 0,
+      scanType: s.outTime ? "OUT" : "IN",
+      deviceId: "WEB"
+    })
+  });
+}
+
+</script>
+
+<!-- QR reader window -->
+<div id="reader" style="width:300px; margin:auto; margin-top:20px;"></div>
+
+</body>
+</html>
